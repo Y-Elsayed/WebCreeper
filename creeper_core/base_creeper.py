@@ -12,7 +12,7 @@ class BaseCreeper(ABC):
         "user_agent": "DefaultCrawler",
         "max_depth": 1,
         "allowed_domains": [],
-        "storage_path": "../data",
+        "storage_path": "./data",
     }
 
     def __init__(self, settings: dict = {}):

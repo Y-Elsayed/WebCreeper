@@ -1,7 +1,7 @@
 import os
 from logging import StreamHandler, FileHandler, Formatter, getLogger, INFO
 
-def configure_logging(module_name: str, log_file: str = "../log/crawler.log"):
+def configure_logging(module_name: str, log_file: str = "./log/crawler.log"):
     """
     Configures and returns a logger that writes to both console and a log file.
     """
