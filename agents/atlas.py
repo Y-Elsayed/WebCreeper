@@ -7,9 +7,9 @@ class Atlas(BaseCreeper):
     def __init__(self, settings: dict = {}):
         super().__init__(settings)
         self.graph = {}  # Dictionary to store the graph (key = page, value = list of linked pages)
-        self.settings["user_agent"] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36'
+        self.settings["user_agent"] = 'AtlasCrawler'  # Set the user agent for the crawler
         self.visited = set()  # Set to track visited pages
-        self.max_depth = self.settings.get('max_depth', 3)  # Max depth for crawling
+        self.max_depth = self.settings.get('max_depth', 3)  # Default Max depth for crawling
 
 
     def crawl(self, start_url: str):
@@ -29,10 +29,13 @@ class Atlas(BaseCreeper):
             return  # Skip if the page has already been visited
 
         self.logger.info(f"Crawling page: {url} (Depth: {depth})")
-        self.visited.add(url)  # Mark the page as visited
 
+        if not self.is_allowed_link(url):
+            return
+        
         # Fetch the page content
         content = self.fetch(url)
+        self.visited.add(url)  # Mark the page as visited
         links = []
         # Process links
         if content is not None:
@@ -60,27 +63,6 @@ class Atlas(BaseCreeper):
                 links.add(full_url)
 
         return list(links)
-
-    def is_allowed_link(self, url: str) -> bool:
-        """
-        Check if the link is within the allowed domains and allowed by robots.txt.
-        """
-        if self.settings.get('allowed_domains') == []:
-            return True  # No domain restrictions
-
-        parsed_url = urlparse(url)
-        domain = parsed_url.netloc
-        
-        # Check if the link's domain is allowed
-        if domain not in self.settings['allowed_domains']:
-            return False
-
-        # Check if the URL is allowed by robots.txt
-        if not self.is_allowed_by_robots(url):
-            self.logger.info(f"Link {url} is disallowed by robots.txt")
-            return False
-
-        return True
 
     def process_data(self, data, file_path=None):
         # Set the default file_path if it's not provided

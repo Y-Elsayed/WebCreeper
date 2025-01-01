@@ -90,6 +90,32 @@ class BaseCreeper(ABC):
             self.logger.error(f"Error accessing robots.txt: {e}") # Logging an error if there is an exception
             return None
 
+    def is_allowed_link(self, url: str) -> bool:
+        """
+        Check if the link is within the allowed domains and allowed by robots.txt.
+        """
+        if not self.is_allowed_domain(url):
+            self.logger.info(f"Domain {urlparse(url).netloc} is not allowed")
+            return False
+
+        # Check if the URL is allowed by robots.txt
+        if not self.is_allowed_by_robots(url):
+            self.logger.info(f"Link {url} is disallowed by robots.txt")
+            return False
+
+        return True
+
+    def is_allowed_domain(self, url: str) -> bool:
+        """
+        Check if the domain is within the allowed domains.
+        """
+        allowed_domains = self.settings.get('allowed_domains', [])
+        parsed_url = urlparse(url)
+        if parsed_url.netloc not in allowed_domains and allowed_domains != []:
+            return False
+        return True
+    
+
     def is_allowed_by_robots(self, url: str) -> bool:
         """
         Checks if the URL is allowed by the robots.txt file for the domain.
