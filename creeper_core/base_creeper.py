@@ -19,6 +19,7 @@ class BaseCreeper(ABC):
         self.settings = {**self.DEFAULT_SETTINGS, **settings}  # Merging default and passed settings
         self.logger = configure_logging(self.__class__.__name__)
         self.robots_cache = {} # Cache for robots.txt content
+        self.blacklist = set()  # List of URLs to ignore
 
     @abstractmethod
     def crawl(self):
@@ -39,17 +40,23 @@ class BaseCreeper(ABC):
         """
         Fetches content from the given URL using settings from self.settings.
         """
+        if url in self.blacklist:
+            self.logger.info(f"Skipping blacklisted URL: {url}")
+            return None
         try:
             self.logger.info(f"Fetching: {url}")
             headers = {
                 'User-Agent': self.settings.get('user_agent', 'DefaultCrawler')  # Using the user agent from settings and defaulting to 'DefaultCrawler'
             }
             response = requests.get(url, headers=headers, timeout=self.settings.get('timeout', 10))  # Using timeout from settings and defaulting to 10 seconds
-            response.raise_for_status() 
+            if response.status_code != 200:
+                self.logger.warning(f"Failed to fetch {url}: Status code {response.status_code}")
+                return None
             return response.text  # Returning the HTML content of the page
         except requests.exceptions.RequestException as e:
             self.logger.error(f"Error fetching {url}: {e}")
-            raise
+            self.blacklist.add(url)  # Add to blacklist on error
+            return None
 
 
     def get_home_url(self, url: str) -> str:
