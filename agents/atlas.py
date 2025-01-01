@@ -1,9 +1,9 @@
-from urllib.parse import urlparse, urljoin
+from urllib.parse import urljoin
 from bs4 import BeautifulSoup
-from creeper_core.base_creeper import BaseCreeper
+from creeper_core.base_agent import BaseAgent
 from json import dump
 import os
-class Atlas(BaseCreeper):
+class Atlas(BaseAgent):
     def __init__(self, settings: dict = {}):
         super().__init__(settings)
         self.graph = {}  # Dictionary to store the graph (key = page, value = list of linked pages)

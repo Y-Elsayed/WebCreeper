@@ -1,10 +1,10 @@
-# creeper_core/base_creeper.py
+# creeper_core/base_agent.py
 from abc import ABC, abstractmethod
 from creeper_core.utils import configure_logging
 import requests
 from urllib.parse import urlparse
 
-class BaseCreeper(ABC):
+class BaseAgent(ABC):
     # Default settings for the crawler
     DEFAULT_SETTINGS = {
         "base_url": None,
