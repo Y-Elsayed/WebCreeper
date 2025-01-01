@@ -5,10 +5,11 @@ import requests
 from urllib.parse import urlparse
 
 class BaseCreeper(ABC):
+    # Default settings for the crawler
     DEFAULT_SETTINGS = {
         "base_url": None,
         "timeout": 10,
-        "user_agent": "",
+        "user_agent": "DefaultCrawler",
         "max_depth": 1,
         "allowed_domains": [],
         "storage_path": "../data",
@@ -40,9 +41,9 @@ class BaseCreeper(ABC):
         try:
             self.logger.info(f"Fetching: {url}")
             headers = {
-                'User-Agent': self.settings.get('user_agent', 'DefaultCrawler')  # Using the user agent from settings
+                'User-Agent': self.settings.get('user_agent', 'DefaultCrawler')  # Using the user agent from settings and defaulting to 'DefaultCrawler'
             }
-            response = requests.get(url, headers=headers, timeout=self.settings.get('timeout', 10))  # Using timeout from settings
+            response = requests.get(url, headers=headers, timeout=self.settings.get('timeout', 10))  # Using timeout from settings and defaulting to 10 seconds
             response.raise_for_status() 
             return response.text  # Returning the HTML content of the page
         except requests.exceptions.RequestException as e:
@@ -70,13 +71,13 @@ class BaseCreeper(ABC):
             headers = {
                 'User-Agent': self.settings.get('user_agent', 'DefaultCrawler')
             }
-            response = requests.get(robots_url, headers=headers, timeout=self.settings.get('timeout', 10))
+            response = requests.get(robots_url, headers=headers, timeout=self.settings.get('timeout', 10)) # Using timeout from settings and defaulting to 10 seconds
             if response.status_code == 200:
                 self.logger.info("Successfully fetched robots.txt")
                 return response.text
             else:
-                self.logger.warning(f"No robots.txt found at {robots_url}")
+                self.logger.warning(f"No robots.txt found at {robots_url}") # Logging a warning if no robots.txt is found
                 return None
         except requests.exceptions.RequestException as e:
-            self.logger.error(f"Error accessing robots.txt: {e}")
+            self.logger.error(f"Error accessing robots.txt: {e}") # Logging an error if there is an exception
             return None
