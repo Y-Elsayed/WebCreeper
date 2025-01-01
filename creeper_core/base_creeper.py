@@ -2,6 +2,7 @@
 from abc import ABC, abstractmethod
 from creeper_core.utils import configure_logging
 import requests
+from urllib.parse import urlparse
 
 class BaseCreeper(ABC):
     DEFAULT_SETTINGS = {
@@ -47,3 +48,35 @@ class BaseCreeper(ABC):
         except requests.exceptions.RequestException as e:
             self.logger.error(f"Error fetching {url}: {e}")
             raise
+
+
+    def get_home_url(self, url: str) -> str:
+        """
+        Extracts the home URL from a given URL.
+        """
+        self.logger.info(f"Extracting home URL from: {url}")
+        parsed_url = urlparse(url)
+        return f"{parsed_url.scheme}://{parsed_url.netloc}"
+    
+    #Should be used in each crawler to check if the URL is allowed to be crawled
+    def fetch_robots_txt(self, url: str) -> str:
+        """
+        Fetches the robots.txt file from the home of the website.
+        """
+        home_url = self.get_home_url(url)
+        robots_url = f"{home_url}/robots.txt"
+        try:
+            self.logger.info(f"Fetching robots.txt from: {home_url}")
+            headers = {
+                'User-Agent': self.settings.get('user_agent', 'DefaultCrawler')
+            }
+            response = requests.get(robots_url, headers=headers, timeout=self.settings.get('timeout', 10))
+            if response.status_code == 200:
+                self.logger.info("Successfully fetched robots.txt")
+                return response.text
+            else:
+                self.logger.warning(f"No robots.txt found at {robots_url}")
+                return None
+        except requests.exceptions.RequestException as e:
+            self.logger.error(f"Error accessing robots.txt: {e}")
+            return None
