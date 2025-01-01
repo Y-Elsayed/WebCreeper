@@ -108,7 +108,6 @@ class BaseCreeper(ABC):
         """
         Parses the robots.txt content and checks if the URL is allowed.
         """
-        # Simple regex-based matching for user-agent '*' and the disallowed paths
         parsed_url = urlparse(url)
         path = parsed_url.path
 
