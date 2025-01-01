@@ -18,6 +18,7 @@ class BaseCreeper(ABC):
     def __init__(self, settings: dict = {}):
         self.settings = {**self.DEFAULT_SETTINGS, **settings}  # Merging default and passed settings
         self.logger = configure_logging(self.__class__.__name__)
+        self.robots_cache = {} # Cache for robots.txt content
 
     @abstractmethod
     def crawl(self):
@@ -81,3 +82,51 @@ class BaseCreeper(ABC):
         except requests.exceptions.RequestException as e:
             self.logger.error(f"Error accessing robots.txt: {e}") # Logging an error if there is an exception
             return None
+
+    def is_allowed_by_robots(self, url: str) -> bool:
+        """
+        Checks if the URL is allowed by the robots.txt file for the domain.
+        """
+        domain = self.get_home_url(url)  # Get the base URL (domain)
+        domain_key = urlparse(domain).netloc  # Extract domain from URL
+
+        # Check if we already have the robots.txt content cached for this domain
+        if domain_key not in self.robots_cache:
+            robots_txt = self.fetch_robots_txt(url)
+            if robots_txt:
+                self.robots_cache[domain_key] = robots_txt
+
+        # If we have robots.txt cached for this domain
+        if domain_key in self.robots_cache:
+            robots_txt = self.robots_cache[domain_key]
+            return self._is_url_allowed_by_robots_txt(url, robots_txt)
+
+        # If no robots.txt found, allow crawling by default
+        return True
+
+    def _is_url_allowed_by_robots_txt(self, url: str, robots_txt: str) -> bool:
+        """
+        Parses the robots.txt content and checks if the URL is allowed.
+        """
+        # Simple regex-based matching for user-agent '*' and the disallowed paths
+        parsed_url = urlparse(url)
+        path = parsed_url.path
+
+        # Split robots.txt into lines and filter out comments
+        rules = robots_txt.splitlines()
+        user_agent = None
+        disallowed_paths = []
+
+        for line in rules:
+            line = line.strip()
+            if line.startswith("User-agent:"):
+                user_agent = line.split(":")[1].strip()
+            elif line.startswith("Disallow:") and user_agent == "*" :
+                disallowed_path = line.split(":")[1].strip()
+                disallowed_paths.append(disallowed_path)
+
+        # Check if the URL path matches any disallowed path
+        for disallowed_path in disallowed_paths:
+            if path.startswith(disallowed_path):
+                return False
+        return True
