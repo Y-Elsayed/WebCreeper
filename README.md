@@ -4,6 +4,6 @@
 
 ## The Idea
 
-At the heart of **WebCreeper** is the concept of "crawler agents"—specialized crawlers each with a distinct set of capabilities. These agents are modular and designed to carry out specific tasks efficiently. You can mix and match these agents based on your needs, or even create new ones to tackle new challenges as the project evolves.
+At the heart of **WebCreeper** is the concept of "crawler agents", which are specialized crawlers each with a distinct set of capabilities. These agents are modular and designed to carry out specific tasks efficiently. You can mix and match these agents based on your needs, or even create new ones to tackle new challenges as the project evolves.
 
 Each crawler agent is designed to perform its designated task, helping users gather valuable insights from the web in a streamlined, efficient manner.
