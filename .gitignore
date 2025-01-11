@@ -9,3 +9,7 @@ test.py
 # Ignore virtual environment directories
 venv/
 env/
+
+test_data/
+log/
+data/
