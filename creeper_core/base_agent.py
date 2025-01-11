@@ -5,15 +5,6 @@ import requests
 from urllib.parse import urlparse
 
 class BaseAgent(ABC):
-    # Default settings for the crawler
-    DEFAULT_SETTINGS = {
-        "base_url": None,
-        "timeout": 10,
-        "user_agent": "DefaultCrawler",
-        "max_depth": 1,
-        "allowed_domains": [],
-        "storage_path": "./data",
-    }
 
     def __init__(self, settings: dict = {}):
         self.settings = {**self.DEFAULT_SETTINGS, **settings}  # Merging default and passed settings
