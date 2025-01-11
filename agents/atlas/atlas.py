@@ -4,19 +4,39 @@ from creeper_core.base_agent import BaseAgent
 from json import dump
 import os
 class Atlas(BaseAgent):
+    DEFAULT_SETTINGS = {
+        "base_url": None,
+        "timeout": 10,
+        "user_agent": "AtlasCrawler",
+        "max_depth": 3,
+        "allowed_domains": [],
+        "storage_path": "./data",
+        "crawl_entire_website": False,
+    }
+
     def __init__(self, settings: dict = {}):
-        super().__init__(settings)
+        self.settings = {**self.DEFAULT_SETTINGS, **settings} # Merge default and passed settings
+
+        # Initialize specific attributes
         self.graph = {}  # Dictionary to store the graph (key = page, value = list of linked pages)
-        self.settings["user_agent"] = 'AtlasCrawler'  # Set the user agent for the crawler
         self.visited = set()  # Set to track visited pages
-        self.max_depth = self.settings.get('max_depth', 3)  # Default Max depth for crawling
+        self.max_depth = self.settings['max_depth']  # Use default or user-provided max_depth
+        self.crawl_entire_website = self.settings['crawl_entire_website']  # Full site crawl flag
+
+        # Call the parent constructor if any parent logic is needed
+        super().__init__(self.settings)
 
 
-    def crawl(self, start_url: str):
+    def crawl(self, start_url: str): # May add semantic crawling in the future
         """
         Start crawling from the given start URL.
         """
-        self._crawl_page(start_url)
+        if self.crawl_entire_website:
+            self.logger.info("Crawling the entire website.")
+            self._crawl_entire_site(start_url)
+        else:
+            self.logger.info(f"Crawling with depth limit: {self.max_depth}")
+            self._crawl_page(start_url)
 
     def _crawl_page(self, url: str, depth: int = 0):
         """
@@ -46,6 +66,35 @@ class Atlas(BaseAgent):
         for link in links:
             if link not in self.visited:
                 self._crawl_page(link, depth + 1)
+
+    def _crawl_entire_site(self, start_url: str):
+            """
+            Crawl all pages within the same domain as the start URL.
+            """
+            domain = self.get_home_url(start_url)
+            to_visit = [start_url]
+
+            while to_visit:
+                url = to_visit.pop(0)
+                if url in self.visited:
+                    continue
+
+                self.logger.info(f"Crawling page: {url}")
+                if not self.is_allowed_link(url):
+                    continue
+
+                # Fetch and process the page content
+                content = self.fetch(url)
+                self.visited.add(url)
+                links = []
+                if content is not None:
+                    links = self.extract_links(content, url)
+                self.graph[url] = links
+
+                # Add new links to the queue if they are within the same domain
+                for link in links:
+                    if link not in self.visited and link.startswith(domain):
+                        to_visit.append(link)
 
     def extract_links(self, page_content: str, base_url: str) -> list:
         """
