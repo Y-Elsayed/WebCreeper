@@ -3,6 +3,9 @@ import os
 from agents.atlas.atlas import Atlas
 from bs4 import BeautifulSoup
 
+# To run this test, run the following command in the terminal:
+# python -m unittest test.test_atlas_callback
+
 class TestAtlasCallBack(unittest.TestCase):
 
     def setUp(self):
