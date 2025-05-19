@@ -153,3 +153,9 @@ class BaseAgent(ABC):
             if path.startswith(disallowed_path):
                 return False
         return True
+    
+    def add_to_blacklist(self, urls: list[str] | str):
+        if isinstance(urls, str):
+            urls = [urls]
+        self.blacklist.update(urls)
+        self.logger.info(f"Added to blacklist: {urls}")
