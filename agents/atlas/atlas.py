@@ -1,6 +1,8 @@
 import hashlib
+import inspect
 import os
 import re
+import asyncio
 from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup
@@ -27,6 +29,8 @@ class Atlas(BaseAgent):
         "deduplicate_content": True,
         "allow_subdomains": False,  # exact host by default
         "seed_urls": [],  # crawl only these pages when not full-site
+        "max_concurrency": 10,
+        "batch_delay": 0.0,
     }
 
     def __init__(self, settings: dict = {}):
@@ -236,6 +240,127 @@ class Atlas(BaseAgent):
         }
         self._run_hook_event("on_finish", summary, self._hook_context(start_url=start_url))
 
+    async def crawl_async(self, start_url: str, on_page_crawled=None, on_all_done=None, hooks=None):
+        self.on_page_crawled = on_page_crawled
+        self.on_all_done = on_all_done
+        self.hooks = self._normalize_hooks(hooks)
+        self.settings["base_url"] = start_url
+        await self._run_hook_event_async("on_start", self._hook_context(start_url=start_url))
+
+        if self.settings.get("save_results", True) and os.path.exists(self.results_path):
+            open(self.results_path, "w").close()
+
+        self.visited = set()
+        if hasattr(self, "content_hashes"):
+            self.content_hashes.clear()
+
+        raw_seeds = self.settings.get("seed_urls") or []
+        seeds = [u.strip() for u in raw_seeds if isinstance(u, str) and u.strip()]
+        if not seeds:
+            seeds = [start_url]
+
+        if self.crawl_entire_website or self.max_depth is None or self.max_depth < 0:
+            depth_limit = None
+        else:
+            depth_limit = self.max_depth
+        await self._crawl_bfs_async(seeds, depth_limit=depth_limit)
+
+        if self.on_all_done:
+            try:
+                out = self.on_all_done(self.graph)
+                if inspect.isawaitable(out):
+                    await out
+            except Exception as e:
+                self.logger.warning(f"on_all_done callback raised: {e}")
+
+        summary = {
+            "crawled_pages": len(self.graph),
+            "visited_urls": len(self.visited),
+            "results_path": self.results_path if self.settings.get("save_results", True) else None,
+        }
+        await self._run_hook_event_async("on_finish", summary, self._hook_context(start_url=start_url))
+
+    async def _crawl_bfs_async(self, seed_urls: list[str], depth_limit=None):
+        frontier = []
+        seen_frontier = set()
+        for u in seed_urls:
+            u = self._strip_fragment(u)
+            if not u or u in seen_frontier:
+                continue
+            seen_frontier.add(u)
+            frontier.append(u)
+
+        depth = 0
+        max_concurrency = max(1, int(self.settings.get("max_concurrency", 10)))
+        sem = asyncio.Semaphore(max_concurrency)
+        batch_delay = float(self.settings.get("batch_delay", 0.0))
+
+        while frontier:
+            if depth_limit is not None and depth > depth_limit:
+                break
+
+            tasks = [self._process_url_async(url, depth, sem) for url in frontier]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            next_frontier = []
+            for item in results:
+                if isinstance(item, Exception):
+                    self.logger.warning(f"Async crawl task failed: {item}")
+                    continue
+                for target in item:
+                    target = self._strip_fragment(target)
+                    if target not in seen_frontier:
+                        seen_frontier.add(target)
+                        next_frontier.append(target)
+
+            if batch_delay > 0 and next_frontier:
+                await asyncio.sleep(batch_delay)
+
+            frontier = next_frontier
+            depth += 1
+
+    async def _process_url_async(self, url: str, depth: int, sem: asyncio.Semaphore) -> list[str]:
+        async with sem:
+            if url in self.visited:
+                return []
+
+            url = self._strip_fragment(url)
+            page_ctx = self._hook_context(url=url, depth=depth)
+
+            if not self.should_visit(url):
+                await self._run_hook_event_async("on_page_skipped", url, "blocked_by_policy", page_ctx)
+                return []
+            if not self.is_allowed_path(url):
+                await self._run_hook_event_async("on_page_skipped", url, "blocked_by_path_policy", page_ctx)
+                return []
+
+            self.visited.add(url)
+            self.logger.info(f"Crawling page async: {url} (Depth: {depth})")
+
+            fetched = await self.fetch_async(url)
+            if not fetched:
+                self.logger.info(f"Skipping {url} - failed to fetch.")
+                await self._run_hook_event_async("on_page_error", url, "fetch_failed", page_ctx)
+                return []
+            content, content_type = fetched
+
+            if not content or "text/html" not in (content_type or ""):
+                self.logger.info(f"Skipping non-HTML content: {url} [{content_type}]")
+                await self._run_hook_event_async("on_page_skipped", url, f"non_html:{content_type}", page_ctx)
+                return []
+
+            if self._is_duplicate_content(content, url):
+                await self._run_hook_event_async("on_page_skipped", url, "duplicate_content", page_ctx)
+                return []
+
+            links = await self.extract_links_async(content, url)
+
+            for result in await self._collect_page_results_async(url, content, page_ctx):
+                self._save_result(result)
+
+            self.graph[url] = links
+            return [link["target"] for link in links]
+
     def _crawl_page(self, url: str, depth: int = 0):
         if (self.max_depth is not None and self.max_depth >= 0 and depth > self.max_depth) or url in self.visited:
             return
@@ -417,6 +542,36 @@ class Atlas(BaseAgent):
 
             anchor_text = anchor.get_text(strip=True)
             if not self._allow_discovered_link(base_url, full_url, anchor_text):
+                continue
+
+            links.append(
+                {
+                    "target": full_url,
+                    "anchor_text": anchor_text,
+                    "source_chunk": f"{page_id}_chunk_{i}" if page_id is not None else f"chunk_{i}",
+                }
+            )
+            i += 1
+
+        return links
+
+    async def extract_links_async(self, page_content: str, base_url: str, page_id=None) -> list:
+        soup = BeautifulSoup(page_content, "html.parser")
+        links = []
+        seen = set()
+
+        i = 0
+        for anchor in soup.find_all("a", href=True):
+            full_url = urljoin(base_url, anchor["href"])
+            full_url = self._strip_fragment(full_url)
+            if not self._is_http(full_url):
+                continue
+            if full_url in seen:
+                continue
+            seen.add(full_url)
+
+            anchor_text = anchor.get_text(strip=True)
+            if not await self._allow_discovered_link_async(base_url, full_url, anchor_text):
                 continue
 
             links.append(

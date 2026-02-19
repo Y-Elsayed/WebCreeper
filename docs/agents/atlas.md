@@ -12,6 +12,7 @@ It also supports extracting structured data per page via callbacks or reusable h
 
 - Depth-limited crawling
 - Full-site crawling
+- Async BFS crawling by frontier batches
 - Seeded crawling from specific URLs
 - Domain/path/pattern filtering
 - Robots.txt-aware crawling
@@ -48,6 +49,8 @@ settings = {
     "save_results": True,
     "results_filename": "results.jsonl",
     "storage_path": "./data",
+    "max_concurrency": 10,  # async crawl only
+    "batch_delay": 0.0,     # async crawl only
 }
 ```
 
@@ -78,6 +81,21 @@ atlas = Atlas(settings={
     "max_depth": 1,
 })
 atlas.crawl("https://example.com")
+```
+
+Async crawl (BFS layers in batches):
+
+```python
+import asyncio
+from agents.atlas.atlas import Atlas
+
+atlas = Atlas(settings={
+    "crawl_entire_website": True,
+    "max_concurrency": 10,
+    "batch_delay": 0.0,
+})
+
+asyncio.run(atlas.crawl_async("https://example.com"))
 ```
 
 ## Extract Content with Callback
@@ -134,6 +152,10 @@ Supported hook lifecycle methods:
 - `on_page_error(url, error, context)`
 - `on_page_skipped(url, reason, context)`
 - `on_finish(summary, context)`
+
+Notes for async usage:
+- `crawl_async()` accepts both sync and async callbacks/hooks.
+- BFS runs layer by layer; URLs in the same layer are processed concurrently up to `max_concurrency`.
 
 ## Outputs
 

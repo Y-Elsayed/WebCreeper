@@ -1,10 +1,13 @@
 import re
 import time
 import urllib.robotparser as robotparser
+import asyncio
+import inspect
 from abc import ABC, abstractmethod
 from typing import Any
 from urllib.parse import parse_qs, parse_qsl, urlencode, urlparse, urlunparse
 
+import httpx
 import requests
 
 from creeper_core.utils import configure_logging
@@ -326,6 +329,82 @@ class BaseAgent(ABC):
                 self.blacklist.add(url)
                 return None
 
+    async def _rate_limit_sleep_async(self, host: str):
+        delay = float(self.settings.get("rate_limit_delay", 0.0))
+        if delay <= 0:
+            return
+        now = time.time()
+        last = self._last_fetch.get(host)
+        if last is not None:
+            elapsed = now - last
+            if elapsed < delay:
+                await asyncio.sleep(delay - elapsed)
+        self._last_fetch[host] = time.time()
+
+    async def fetch_async(self, url: str):
+        # Gate by policy first
+        if not self.should_visit(url):
+            return None
+
+        # Normalize for request
+        url = self._normalize_url(url)
+        self.visited.add(url)
+
+        headers = {"User-Agent": self.settings.get("user_agent", "DefaultCrawler")}
+        headers.update(self.settings.get("headers", {}) or {})
+        allow_redirects = self.settings.get("follow_redirects", True)
+        max_retries = int(self.settings.get("max_retries", 2))
+        backoff = float(self.settings.get("backoff_factor", 0.5))
+        status_forcelist = set(int(s) for s in (self.settings.get("status_forcelist") or []))
+        host = urlparse(url).netloc
+
+        ct, rt = self._timeouts()
+        timeout = httpx.Timeout(connect=ct, read=rt, write=rt, pool=ct)
+        for attempt in range(max_retries + 1):
+            try:
+                await self._rate_limit_sleep_async(host)
+                self.logger.info(f"Fetching async: {url} (attempt {attempt+1}/{max_retries+1})")
+
+                async with httpx.AsyncClient(
+                    headers=headers,
+                    follow_redirects=allow_redirects,
+                    timeout=timeout,
+                ) as client:
+                    resp = await client.get(url)
+
+                mcl = self.settings.get("max_content_length")
+                if mcl is not None:
+                    try:
+                        clen = int(resp.headers.get("Content-Length", "0"))
+                        if clen and clen > int(mcl):
+                            self._mark_disallowed(url, f"Content-Length {clen} > max {mcl}")
+                            return None
+                    except ValueError:
+                        pass
+
+                if resp.status_code == 200:
+                    content_type = resp.headers.get("Content-Type", "") or ""
+                    return resp.text, content_type
+
+                if resp.status_code in status_forcelist and attempt < max_retries:
+                    sleep_s = backoff * (2**attempt)
+                    self.logger.warning(f"Retryable status {resp.status_code} for {url}; sleeping {sleep_s:.2f}s")
+                    await asyncio.sleep(sleep_s)
+                    continue
+
+                self.logger.warning(f"Failed to fetch {url}: Status code {resp.status_code}")
+                return None
+
+            except httpx.RequestError as e:
+                if attempt < max_retries:
+                    sleep_s = backoff * (2**attempt)
+                    self.logger.warning(f"Error fetching {url}: {e}; retrying in {sleep_s:.2f}s")
+                    await asyncio.sleep(sleep_s)
+                    continue
+                self.logger.error(f"Error fetching {url}: {e}")
+                self.blacklist.add(url)
+                return None
+
     # -------------------- visit policy --------------------
 
     def should_visit(self, url: str) -> bool:
@@ -399,6 +478,18 @@ class BaseAgent(ABC):
             except Exception as e:
                 self.logger.warning(f"{event_name} hook failed: {e}")
 
+    async def _run_hook_event_async(self, event_name: str, *args):
+        for hook in self.hooks:
+            event_fn = getattr(hook, event_name, None)
+            if not callable(event_fn):
+                continue
+            try:
+                out = event_fn(*args)
+                if inspect.isawaitable(out):
+                    await out
+            except Exception as e:
+                self.logger.warning(f"{event_name} hook failed: {e}")
+
     def _call_legacy_on_page_callback(self, url: str, html: str):
         callback = getattr(self, "on_page_crawled", None)
         if not callable(callback):
@@ -408,6 +499,28 @@ class BaseAgent(ABC):
         except TypeError:
             try:
                 return callback({"url": url, "html": html})
+            except Exception as e:
+                self.logger.warning(f"on_page_crawled failed for {url}: {e}")
+                return None
+        except Exception as e:
+            self.logger.warning(f"on_page_crawled failed for {url}: {e}")
+            return None
+
+    async def _call_legacy_on_page_callback_async(self, url: str, html: str):
+        callback = getattr(self, "on_page_crawled", None)
+        if not callable(callback):
+            return None
+        try:
+            out = callback(url, html)
+            if inspect.isawaitable(out):
+                return await out
+            return out
+        except TypeError:
+            try:
+                out = callback({"url": url, "html": html})
+                if inspect.isawaitable(out):
+                    return await out
+                return out
             except Exception as e:
                 self.logger.warning(f"on_page_crawled failed for {url}: {e}")
                 return None
@@ -445,6 +558,26 @@ class BaseAgent(ABC):
 
         return results
 
+    async def _collect_page_results_async(self, url: str, html: str, context: dict) -> list[dict]:
+        results = []
+
+        callback_result = await self._call_legacy_on_page_callback_async(url, html)
+        if isinstance(callback_result, dict):
+            results.append(callback_result)
+
+        for hook in self.hooks:
+            try:
+                hook_result = self._call_hook_for_page(hook, url, html, context)
+                if inspect.isawaitable(hook_result):
+                    hook_result = await hook_result
+            except Exception as e:
+                self.logger.warning(f"on_page hook failed for {url}: {e}")
+                continue
+            if isinstance(hook_result, dict):
+                results.append(hook_result)
+
+        return results
+
     def _allow_discovered_link(self, source_url: str, target_url: str, anchor_text: str) -> bool:
         context = self._hook_context(source_url=source_url, target_url=target_url, anchor_text=anchor_text)
         for hook in self.hooks:
@@ -453,6 +586,23 @@ class BaseAgent(ABC):
                 continue
             try:
                 decision = on_link(source_url, target_url, anchor_text, context)
+            except Exception as e:
+                self.logger.warning(f"on_link_discovered hook failed: {e}")
+                continue
+            if decision is False:
+                return False
+        return True
+
+    async def _allow_discovered_link_async(self, source_url: str, target_url: str, anchor_text: str) -> bool:
+        context = self._hook_context(source_url=source_url, target_url=target_url, anchor_text=anchor_text)
+        for hook in self.hooks:
+            on_link = getattr(hook, "on_link_discovered", None)
+            if not callable(on_link):
+                continue
+            try:
+                decision = on_link(source_url, target_url, anchor_text, context)
+                if inspect.isawaitable(decision):
+                    decision = await decision
             except Exception as e:
                 self.logger.warning(f"on_link_discovered hook failed: {e}")
                 continue
