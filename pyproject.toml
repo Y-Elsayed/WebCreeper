@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "webcreeper"
+version = "0.1.0"
+description = "Open-source web crawling framework with specialized crawler agents."
+readme = "README.md"
+requires-python = ">=3.10"
+dynamic = ["dependencies"]
+authors = [
+  { name = "WebCreeper Contributors" }
+]
+
+[project.urls]
+Homepage = "https://github.com/Y-Elsayed/WebCreeper"
+Repository = "https://github.com/Y-Elsayed/WebCreeper"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["agents*", "creeper_core*"]
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
