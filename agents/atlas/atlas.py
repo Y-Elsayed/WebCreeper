@@ -72,13 +72,13 @@ class Atlas(BaseAgent):
     def _effective_allowed_domains(self, start_url: str) -> list:
         """
         Build an expanded allow-list:
-          - If crawl_entire_website and allowed_domains is empty, derive from start_url.
+          - If allowed_domains is empty, derive from start_url.
           - Always include both apex and 'www.' variant for each entry.
         """
         given = self.settings.get("allowed_domains") or []
         out = set()
 
-        if self.crawl_entire_website and not given:
+        if not given:
             start_host = self._norm_host(urlparse(start_url).netloc)
             if start_host:
                 given = [start_host]
