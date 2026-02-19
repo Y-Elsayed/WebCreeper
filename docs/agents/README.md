@@ -4,9 +4,9 @@ This section contains documentation for each WebCreeper agent.
 
 ## Available Agents
 
-- `Atlas`:
-  - Doc: `docs/agents/atlas.md`
-  - Source: `agents/atlas/atlas.py`
+| Agent | When To Use It | Guide | Source |
+|---|---|---|---|
+| `Atlas` | Crawl page/link structure and run custom extraction on crawled pages. | `docs/agents/atlas.md` | `agents/atlas/atlas.py` |
 
 ## Adding New Agent Docs
 

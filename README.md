@@ -14,56 +14,20 @@ This makes it easy to:
 - Add new agents without rewriting crawl infrastructure.
 - Compose custom extraction logic through callbacks and hooks.
 
-## Installed Agents
+## Agent Selection
 
-- `Atlas`: website crawler that builds a link graph and supports custom extraction callbacks/hooks.
+Use this table to choose the right agent.
 
-See full agent docs:
-- `docs/agents/README.md`
+| Agent | When To Use It | Documentation |
+|---|---|---|
+| `Atlas` | Crawl website structure, build link graphs, and run custom per-page extraction callbacks/hooks. | `docs/agents/atlas.md` |
 
-## Quick Start
-
-Install from GitHub:
-
-```bash
-pip install git+https://github.com/Y-Elsayed/WebCreeper.git
-```
-
-Minimal crawl:
-
-```python
-from agents.atlas.atlas import Atlas
-
-atlas = Atlas(settings={"max_depth": 1})
-atlas.crawl("https://example.com")
-
-graph = atlas.get_graph()
-print(f"Crawled pages: {len(graph)}")
-```
-
-Extract page content with a callback:
-
-```python
-from bs4 import BeautifulSoup
-
-rows = []
-
-def collect(url: str, html: str) -> dict:
-    soup = BeautifulSoup(html, "html.parser")
-    text = soup.get_text(" ", strip=True)
-    row = {"url": url, "content": text[:1000]}
-    rows.append(row)
-    return row
-
-atlas = Atlas(settings={"save_results": False, "max_depth": 1})
-atlas.crawl("https://example.com", on_page_crawled=collect)
-print(rows[:2])
-```
+All agent-specific setup and code examples are documented in each agent page.
 
 ## Documentation
 
+- Installation and project docs index: `docs/README.md`
 - Agent docs index: `docs/agents/README.md`
-- Atlas full guide: `docs/agents/atlas.md`
 
 ## License
 
