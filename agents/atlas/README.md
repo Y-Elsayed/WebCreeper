@@ -15,13 +15,13 @@ Atlas is a powerful agent designed to crawl the web or a specific website and co
 
 ## Usage
 
-To use the **Atlas** agent, follow these steps:
+To use the **Atlas** agent, follow these steps.
 
 ### 1. Install the necessary dependencies
-check the requirements.txt
+Core install:
 
-```powershell
-pip install -r requirements.txt
+```bash
+pip install git+https://github.com/Y-Elsayed/WebCreeper.git
 ```
 
 ### 2. Import the Atlas agent
@@ -36,7 +36,7 @@ settings = {
     'allowed_domains': ['example.com'],  # Only allow crawling to example.com
     'max_depth': 2,  # Crawl up to depth 2
     'storage_path': './data',  # Path where the graph will be saved
-    'user_agent': 'WebCreeper'  # Custom User-Agent to avoid blocking (Default is Atlas)
+    'user_agent': 'WebCreeper'  # Custom User-Agent (default is AtlasCrawler)
 }
 ```
 
@@ -56,6 +56,58 @@ Once the crawl is complete, you can retrieve the constructed graph, which repres
 ```python
 graph = atlas.get_graph() #You'll also find it saved in the data directory
 ```
+
+## Common Recipes
+
+### Full-site crawl mode
+
+```python
+atlas = Atlas(settings={
+    "allowed_domains": ["example.com"],
+    "crawl_entire_website": True,
+})
+atlas.crawl("https://example.com")
+```
+
+### Seeded crawl mode
+
+```python
+atlas = Atlas(settings={
+    "allowed_domains": ["example.com"],
+    "crawl_entire_website": False,
+    "seed_urls": [
+        "https://example.com/docs",
+        "https://example.com/blog",
+    ],
+})
+atlas.crawl("https://example.com")
+```
+
+### Save custom extraction results
+
+```python
+from bs4 import BeautifulSoup
+
+def on_page(url: str, html: str) -> dict:
+    soup = BeautifulSoup(html, "html.parser")
+    title = soup.title.string.strip() if soup.title and soup.title.string else ""
+    return {"url": url, "title": title}
+
+atlas = Atlas(settings={
+    "allowed_domains": ["example.com"],
+    "save_results": True,
+    "results_filename": "results.jsonl",
+})
+atlas.crawl("https://example.com", on_page_crawled=on_page)
+```
+
+## Callback Contract
+
+`on_page_crawled` supports either signature:
+- `fn(url, html)`
+- `fn({"url": url, "html": html})`
+
+If callback returns a `dict` with at least `"url"`, Atlas can persist it in JSONL when `save_results=True`.
 
 ## Contribution
 Contributions to enhance Atlas or implement planned features are welcome.
