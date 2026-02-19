@@ -1,4 +1,4 @@
-# Ignore Python bytecode files
+﻿# Ignore Python bytecode files
 *.pyc
 *.pyo
 __pycache__/
@@ -13,3 +13,5 @@ env/
 test_data/
 log/
 data/
+*.egg-info/
+

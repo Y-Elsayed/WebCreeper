@@ -12,6 +12,7 @@ dynamic = ["dependencies"]
 authors = [
   { name = "WebCreeper Contributors" }
 ]
+license = { text = "MIT" }
 
 [project.urls]
 Homepage = "https://github.com/Y-Elsayed/WebCreeper"
