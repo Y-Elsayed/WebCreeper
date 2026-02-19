@@ -33,7 +33,7 @@ from agents.atlas.atlas import Atlas
 Create a settings dictionary to configure the Atlas agent. This dictionary can include parameters like the allowed domains, maximum crawl depth, storage path, and user agent. For more settings check the ```creeper_core/base_agent.py```
 ```python
 settings = {
-    'allowed_domains': ['example.com'],  # Only allow crawling to example.com
+    'allowed_domains': ['example.com'],  # Optional: if omitted, Atlas derives from start_url
     'max_depth': 2,  # Crawl up to depth 2
     'storage_path': './data',  # Path where the graph will be saved
     'user_agent': 'WebCreeper'  # Custom User-Agent (default is AtlasCrawler)
@@ -101,6 +101,35 @@ atlas = Atlas(settings={
 atlas.crawl("https://example.com", on_page_crawled=on_page)
 ```
 
+### Crawl and get page content immediately (in memory)
+
+```python
+from bs4 import BeautifulSoup
+
+rows = []
+
+def collect(url: str, html: str) -> dict:
+    soup = BeautifulSoup(html, "html.parser")
+    text = soup.get_text(" ", strip=True)
+    row = {"url": url, "content": text[:1000]}
+    rows.append(row)
+    return row
+
+atlas = Atlas(settings={"save_results": False, "max_depth": 1})
+atlas.crawl("https://example.com", on_page_crawled=collect)
+print(rows[:2])
+```
+
+### Read persisted extraction output (JSONL)
+
+```python
+import json
+
+with open("./data/results.jsonl", "r", encoding="utf-8") as f:
+    results = [json.loads(line) for line in f]
+print(f"Saved rows: {len(results)}")
+```
+
 ## Callback Contract
 
 `on_page_crawled` supports either signature:
@@ -108,6 +137,24 @@ atlas.crawl("https://example.com", on_page_crawled=on_page)
 - `fn({"url": url, "html": html})`
 
 If callback returns a `dict` with at least `"url"`, Atlas can persist it in JSONL when `save_results=True`.
+
+## Hooks Pipeline (New)
+
+Atlas also accepts `hooks=[...]` in `crawl()` for reusable processors:
+
+```python
+from creeper_core.hooks import CrawlHook
+
+class TitleHook(CrawlHook):
+    def on_page(self, url, html, context):
+        start = html.find("<title>")
+        end = html.find("</title>")
+        title = html[start + 7 : end].strip() if start != -1 and end != -1 else ""
+        return {"url": url, "title": title}
+
+atlas = Atlas(settings={"save_results": True})
+atlas.crawl("https://example.com", hooks=[TitleHook()])
+```
 
 ## Contribution
 Contributions to enhance Atlas or implement planned features are welcome.

@@ -2,6 +2,7 @@ import re
 import time
 import urllib.robotparser as robotparser
 from abc import ABC, abstractmethod
+from typing import Any
 from urllib.parse import parse_qs, parse_qsl, urlencode, urlparse, urlunparse
 
 import requests
@@ -58,6 +59,7 @@ class BaseAgent(ABC):
         self.robots_cache = {}  # host -> RobotFileParser (or None if unavailable)
         self.blacklist = set()
         self.visited = set()
+        self.hooks = []
         self.disallowed_reasons = {}  # url -> [reasons]
 
         # Compile patterns
@@ -368,3 +370,92 @@ class BaseAgent(ABC):
     def get_disallowed_report(self) -> dict:
         """Return a mapping of url -> reasons why it was disallowed"""
         return self.disallowed_reasons
+
+    # -------------------- hooks lifecycle --------------------
+
+    def _hook_context(self, **extra) -> dict[str, Any]:
+        context = {
+            "agent": self.__class__.__name__,
+            "base_url": self.settings.get("base_url"),
+            "storage_path": self.settings.get("storage_path"),
+        }
+        context.update(extra)
+        return context
+
+    def _normalize_hooks(self, hooks) -> list:
+        if hooks is None:
+            return []
+        if isinstance(hooks, (list, tuple)):
+            return [h for h in hooks if h is not None]
+        return [hooks]
+
+    def _run_hook_event(self, event_name: str, *args):
+        for hook in self.hooks:
+            event_fn = getattr(hook, event_name, None)
+            if not callable(event_fn):
+                continue
+            try:
+                event_fn(*args)
+            except Exception as e:
+                self.logger.warning(f"{event_name} hook failed: {e}")
+
+    def _call_legacy_on_page_callback(self, url: str, html: str):
+        callback = getattr(self, "on_page_crawled", None)
+        if not callable(callback):
+            return None
+        try:
+            return callback(url, html)
+        except TypeError:
+            try:
+                return callback({"url": url, "html": html})
+            except Exception as e:
+                self.logger.warning(f"on_page_crawled failed for {url}: {e}")
+                return None
+        except Exception as e:
+            self.logger.warning(f"on_page_crawled failed for {url}: {e}")
+            return None
+
+    def _call_hook_for_page(self, hook, url: str, html: str, context: dict):
+        if callable(hook) and not callable(getattr(hook, "on_page", None)):
+            try:
+                return hook(url, html)
+            except TypeError:
+                return hook({"url": url, "html": html})
+
+        on_page = getattr(hook, "on_page", None)
+        if callable(on_page):
+            return on_page(url, html, context)
+        return None
+
+    def _collect_page_results(self, url: str, html: str, context: dict) -> list[dict]:
+        results = []
+
+        callback_result = self._call_legacy_on_page_callback(url, html)
+        if isinstance(callback_result, dict):
+            results.append(callback_result)
+
+        for hook in self.hooks:
+            try:
+                hook_result = self._call_hook_for_page(hook, url, html, context)
+            except Exception as e:
+                self.logger.warning(f"on_page hook failed for {url}: {e}")
+                continue
+            if isinstance(hook_result, dict):
+                results.append(hook_result)
+
+        return results
+
+    def _allow_discovered_link(self, source_url: str, target_url: str, anchor_text: str) -> bool:
+        context = self._hook_context(source_url=source_url, target_url=target_url, anchor_text=anchor_text)
+        for hook in self.hooks:
+            on_link = getattr(hook, "on_link_discovered", None)
+            if not callable(on_link):
+                continue
+            try:
+                decision = on_link(source_url, target_url, anchor_text, context)
+            except Exception as e:
+                self.logger.warning(f"on_link_discovered hook failed: {e}")
+                continue
+            if decision is False:
+                return False
+        return True

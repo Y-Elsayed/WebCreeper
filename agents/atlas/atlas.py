@@ -183,12 +183,14 @@ class Atlas(BaseAgent):
 
     # ------------------------- main crawling -----------------------
 
-    def crawl(self, start_url: str, on_page_crawled=None, on_all_done=None):
+    def crawl(self, start_url: str, on_page_crawled=None, on_all_done=None, hooks=None):
         self.on_page_crawled = on_page_crawled
         self.on_all_done = on_all_done
+        self.hooks = self._normalize_hooks(hooks)
 
         # make base_url available to domain helpers
         self.settings["base_url"] = start_url
+        self._run_hook_event("on_start", self._hook_context(start_url=start_url))
 
         # reset output file if saving results
         if self.settings.get("save_results", True) and os.path.exists(self.results_path):
@@ -227,31 +229,25 @@ class Atlas(BaseAgent):
                 self.on_all_done(self.graph)
             except Exception as e:
                 self.logger.warning(f"on_all_done callback raised: {e}")
-
-    def _call_on_page_crawled(self, url: str, html: str):
-        """
-        Call user callback supporting both signatures:
-          - fn(url, html)
-          - fn({"url": url, "html": html})
-        """
-        if not self.on_page_crawled:
-            return None
-        try:
-            return self.on_page_crawled(url, html)
-        except TypeError:
-            try:
-                return self.on_page_crawled({"url": url, "html": html})
-            except Exception as e:
-                self.logger.warning(f"on_page_crawled failed for {url}: {e}")
-                return None
+        summary = {
+            "crawled_pages": len(self.graph),
+            "visited_urls": len(self.visited),
+            "results_path": self.results_path if self.settings.get("save_results", True) else None,
+        }
+        self._run_hook_event("on_finish", summary, self._hook_context(start_url=start_url))
 
     def _crawl_page(self, url: str, depth: int = 0):
         if (self.max_depth is not None and self.max_depth >= 0 and depth > self.max_depth) or url in self.visited:
             return
 
         url = self._strip_fragment(url)
+        page_ctx = self._hook_context(url=url, depth=depth)
 
-        if not self.should_visit(url) or not self.is_allowed_path(url):
+        if not self.should_visit(url):
+            self._run_hook_event("on_page_skipped", url, "blocked_by_policy", page_ctx)
+            return
+        if not self.is_allowed_path(url):
+            self._run_hook_event("on_page_skipped", url, "blocked_by_path_policy", page_ctx)
             return
 
         self.visited.add(url)
@@ -260,22 +256,24 @@ class Atlas(BaseAgent):
         fetched = self.fetch(url)
         if not fetched:
             self.logger.info(f"Skipping {url} - failed to fetch.")
+            self._run_hook_event("on_page_error", url, "fetch_failed", page_ctx)
             return
         content, content_type = fetched
 
         if not content or "text/html" not in (content_type or ""):
             self.logger.info(f"Skipping non-HTML content: {url} [{content_type}]")
+            self._run_hook_event("on_page_skipped", url, f"non_html:{content_type}", page_ctx)
             return
 
         # Deduplication step
         if self._is_duplicate_content(content, url):
+            self._run_hook_event("on_page_skipped", url, "duplicate_content", page_ctx)
             return
 
         links = self.extract_links(content, url)
 
-        # Callback + optional save
-        result = self._call_on_page_crawled(url, content)
-        if isinstance(result, dict):
+        # Callback/hooks + optional save
+        for result in self._collect_page_results(url, content, page_ctx):
             self._save_result(result)
 
         self.graph[url] = links
@@ -291,10 +289,15 @@ class Atlas(BaseAgent):
         while to_visit:
             url = to_visit.pop(0)
             url = self._strip_fragment(url)
+            page_ctx = self._hook_context(url=url)
 
             if url in self.visited:
                 continue
-            if not self.should_visit(url) or not self.is_allowed_path(url):
+            if not self.should_visit(url):
+                self._run_hook_event("on_page_skipped", url, "blocked_by_policy", page_ctx)
+                continue
+            if not self.is_allowed_path(url):
+                self._run_hook_event("on_page_skipped", url, "blocked_by_path_policy", page_ctx)
                 continue
 
             self.visited.add(url)
@@ -303,22 +306,24 @@ class Atlas(BaseAgent):
             fetched = self.fetch(url)
             if not fetched:
                 self.logger.info(f"Skipping {url} - failed to fetch.")
+                self._run_hook_event("on_page_error", url, "fetch_failed", page_ctx)
                 continue  # don't abort whole crawl
 
             content, content_type = fetched
             if not content or "text/html" not in (content_type or ""):
                 self.logger.info(f"Skipping non-HTML content: {url} [{content_type}]")
+                self._run_hook_event("on_page_skipped", url, f"non_html:{content_type}", page_ctx)
                 continue
 
             # Deduplication step
             if self._is_duplicate_content(content, url):
+                self._run_hook_event("on_page_skipped", url, "duplicate_content", page_ctx)
                 continue
 
             links = self.extract_links(content, url)
 
-            # Callback + optional save
-            result = self._call_on_page_crawled(url, content)
-            if isinstance(result, dict):
+            # Callback/hooks + optional save
+            for result in self._collect_page_results(url, content, page_ctx):
                 self._save_result(result)
 
             self.graph[url] = links
@@ -349,10 +354,15 @@ class Atlas(BaseAgent):
         while frontier:
             url = frontier.pop(0)
             url = self._strip_fragment(url)
+            page_ctx = self._hook_context(url=url)
 
             if url in self.visited:
                 continue
-            if not self.should_visit(url) or not self.is_allowed_path(url):
+            if not self.should_visit(url):
+                self._run_hook_event("on_page_skipped", url, "blocked_by_policy", page_ctx)
+                continue
+            if not self.is_allowed_path(url):
+                self._run_hook_event("on_page_skipped", url, "blocked_by_path_policy", page_ctx)
                 continue
 
             self.visited.add(url)
@@ -361,22 +371,24 @@ class Atlas(BaseAgent):
             fetched = self.fetch(url)
             if not fetched:
                 self.logger.info(f"Skipping {url} - failed to fetch.")
+                self._run_hook_event("on_page_error", url, "fetch_failed", page_ctx)
                 continue
 
             content, content_type = fetched
             if not content or "text/html" not in (content_type or ""):
                 self.logger.info(f"Skipping non-HTML content: {url} [{content_type}]")
+                self._run_hook_event("on_page_skipped", url, f"non_html:{content_type}", page_ctx)
                 continue
 
             # Deduplicate by page text hash (per run)
             if hasattr(self, "_is_duplicate_content") and self._is_duplicate_content(content, url):
+                self._run_hook_event("on_page_skipped", url, "duplicate_content", page_ctx)
                 continue
 
             links = self.extract_links(content, url)
 
-            # user callback & save
-            result = self._call_on_page_crawled(url, content) if hasattr(self, "_call_on_page_crawled") else None
-            if isinstance(result, dict):
+            # user callback/hooks & save
+            for result in self._collect_page_results(url, content, page_ctx):
                 self._save_result(result)
 
             self.graph[url] = links
@@ -403,10 +415,14 @@ class Atlas(BaseAgent):
                 continue
             seen.add(full_url)
 
+            anchor_text = anchor.get_text(strip=True)
+            if not self._allow_discovered_link(base_url, full_url, anchor_text):
+                continue
+
             links.append(
                 {
                     "target": full_url,
-                    "anchor_text": anchor.get_text(strip=True),
+                    "anchor_text": anchor_text,
                     "source_chunk": f"{page_id}_chunk_{i}" if page_id is not None else f"chunk_{i}",
                 }
             )

@@ -25,12 +25,7 @@ Minimal usage:
 ```python
 from agents.atlas.atlas import Atlas
 
-atlas = Atlas(
-    settings={
-        "allowed_domains": ["example.com"],
-        "max_depth": 1,
-    }
-)
+atlas = Atlas(settings={"max_depth": 1})  # allowed_domains auto-derives from start_url
 
 atlas.crawl("https://example.com")
 graph = atlas.get_graph()
@@ -83,6 +78,35 @@ atlas = Atlas(settings={
 atlas.crawl("https://example.com", on_page_crawled=extract_title_and_text)
 ```
 
+Collect extracted content directly in memory:
+
+```python
+from bs4 import BeautifulSoup
+
+pages = []
+
+def collect_content(url: str, html: str) -> dict:
+    soup = BeautifulSoup(html, "html.parser")
+    text = soup.get_text(" ", strip=True)
+    row = {"url": url, "content": text[:1000]}  # keep first 1000 chars
+    pages.append(row)
+    return row
+
+atlas = Atlas(settings={"save_results": False, "max_depth": 1})
+atlas.crawl("https://example.com", on_page_crawled=collect_content)
+print(pages[:2])
+```
+
+Read saved JSONL extraction output:
+
+```python
+import json
+
+with open("./data/results.jsonl", "r", encoding="utf-8") as f:
+    extracted = [json.loads(line) for line in f]
+print(f"Extracted rows: {len(extracted)}")
+```
+
 ## Callback Contract (Atlas)
 
 `on_page_crawled` supports:
@@ -92,3 +116,9 @@ atlas.crawl("https://example.com", on_page_crawled=extract_title_and_text)
 Return value:
 - If the callback returns a `dict` containing at least `"url"`, Atlas can save it to JSONL when `save_results=True`.
 - If callback returns `None` (or non-dict), Atlas skips result persistence for that page.
+
+## Hooks (Reusable Processing)
+
+For reusable extraction logic across crawls, use `hooks=[...]` in `crawl()`.
+Each hook can implement lifecycle methods like `on_start`, `on_page`, `on_page_error`, `on_page_skipped`, and `on_finish`.
+Use `creeper_core.hooks.CrawlHook` as a base class.
