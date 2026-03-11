@@ -1,6 +1,6 @@
 import unittest
 import os
-from agents.atlas.atlas import Atlas
+from webcreeper.agents.atlas.atlas import Atlas
 from bs4 import BeautifulSoup
 
 # To run this test, run the following command in the terminal:

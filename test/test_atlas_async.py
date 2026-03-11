@@ -1,7 +1,7 @@
 import unittest
 
-from agents.atlas.atlas import Atlas
-from creeper_core.hooks import CrawlHook
+from webcreeper.agents.atlas.atlas import Atlas
+from webcreeper.creeper_core.hooks import CrawlHook
 
 
 class AsyncTrackingHook(CrawlHook):
