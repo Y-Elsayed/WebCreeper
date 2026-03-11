@@ -6,8 +6,8 @@ import asyncio
 from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup
-from creeper_core.base_agent import BaseAgent
-from creeper_core.storage import save_json, save_jsonl_line
+from webcreeper.creeper_core.base_agent import BaseAgent
+from webcreeper.creeper_core.storage import save_json, save_jsonl_line
 
 
 class Atlas(BaseAgent):

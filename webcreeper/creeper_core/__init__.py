@@ -1,3 +1,3 @@
-from creeper_core.hooks import CrawlHook
+from webcreeper.creeper_core.hooks import CrawlHook
 
 __all__ = ["CrawlHook"]

@@ -10,7 +10,7 @@ from urllib.parse import parse_qs, parse_qsl, urlencode, urlparse, urlunparse
 import httpx
 import requests
 
-from creeper_core.utils import configure_logging
+from webcreeper.creeper_core.utils import configure_logging
 
 
 class BaseAgent(ABC):
