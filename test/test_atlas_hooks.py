@@ -47,7 +47,11 @@ class TestAtlasHooks(unittest.TestCase):
         # Keep test deterministic and offline.
         atlas.should_visit = lambda url: True
         atlas.is_allowed_path = lambda url: True
-        atlas.fetch = lambda url: (html, "text/html")
+
+        async def fake_fetch(url):
+            return (html, "text/html")
+
+        atlas.fetch_async = fake_fetch
 
         atlas.crawl("https://example.com", hooks=[hook])
 
